@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>문서발송 접수대장</title>
+
+<!-- Pretendard (Korean) -->
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<!-- SheetJS (Excel 내보내기) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Firebase (실시간 동기화) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+  :root{
+    --paper:#f6f3ec;
+    --card:#fffdf8;
+    --ink:#24211c;
+    --ink-soft:#5b564c;
+    --line:#e4ddcf;
+    --line-strong:#cfc6b3;
+    --accent:#0c6b5e;       /* deep teal */
+    --accent-soft:#e3f1ee;
+    --accent-ink:#08443c;
+    --amber:#c9791f;        /* 예약중 */
+    --amber-soft:#fbeeda;
+    --green:#2f7a4d;        /* 발송완료 */
+    --green-soft:#e3f2e7;
+    --red:#b23b3b;
+    --shadow:0 1px 2px rgba(36,33,28,.05),0 8px 24px -12px rgba(36,33,28,.18);
+    --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--paper);color:var(--ink);
+    font-family:'Pretendard Variable',Pretendard,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{min-height:100vh;padding:0 0 80px;}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 22px;}
+
+  /* ---------- Header ---------- */
+  header.top{
+    background:linear-gradient(180deg,#fffdf8,#f6f3ec);
+    border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:30;backdrop-filter:saturate(140%) blur(4px);
+  }
+  .top-in{display:flex;align-items:center;justify-content:space-between;gap:18px;
+    padding:16px 0;}
+  .brand{display:flex;align-items:center;gap:13px;}
+  .brand .mark{width:42px;height:42px;border-radius:11px;
+    background:var(--accent);color:#fff;display:grid;place-items:center;
+    font-weight:800;font-size:19px;letter-spacing:-1px;box-shadow:var(--shadow);}
+  .brand h1{font-size:19px;font-weight:800;letter-spacing:-.4px;}
+  .brand p{font-size:12.5px;color:var(--ink-soft);margin-top:1px;}
+  .conn{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);
+    background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:7px 13px;white-space:nowrap;}
+  .dot{width:8px;height:8px;border-radius:50%;background:#bbb;}
+  .dot.on{background:#2f9e6d;box-shadow:0 0 0 3px rgba(47,158,109,.18);}
+  .dot.off{background:var(--red);box-shadow:0 0 0 3px rgba(178,59,59,.16);}
+
+  /* ---------- Hero (next number) ---------- */
+  .hero{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;margin-top:24px;}
+  @media(max-width:860px){.hero{grid-template-columns:1fr;}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;
+    box-shadow:var(--shadow);padding:22px 24px;}
+  .panel .eyebrow{font-size:12px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;}
+  .eyebrow::before{content:"";width:18px;height:2px;background:var(--accent);border-radius:2px;}
+
+  .nextrow{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;}
+  .date-field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:6px;font-weight:600;}
+  input[type=date]{font-family:var(--mono);font-size:15px;padding:11px 13px;
+    border:1px solid var(--line-strong);border-radius:11px;background:#fff;color:var(--ink);}
+  .nextnum{flex:1;min-width:220px;}
+  .nextnum .lbl{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-bottom:4px;}
+  .nextnum .val{font-family:var(--mono);font-size:34px;font-weight:700;letter-spacing:-.5px;
+    color:var(--accent-ink);line-height:1;}
+  .nextnum .val small{font-size:15px;color:var(--ink-soft);font-weight:500;}
+
+  .used{margin-top:18px;padding-top:16px;border-top:1px dashed var(--line-strong);}
+  .used .h{font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-bottom:9px;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{font-family:var(--mono);font-size:12.5px;padding:5px 9px;border-radius:8px;
+    border:1px solid var(--line);background:#fff;color:var(--ink-soft);}
+  .chip.r{background:var(--amber-soft);border-color:#eccb98;color:#8a530f;}
+  .chip.s{background:var(--green-soft);border-color:#bcdcc6;color:#1f5a36;}
+  .chip.empty{font-family:inherit;color:#9a9384;background:transparent;border-style:dashed;}
+
+  /* stat panel */
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px;}
+  .stat .n{font-size:26px;font-weight:800;letter-spacing:-.5px;}
+  .stat .t{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .stat.amber .n{color:var(--amber);}
+  .stat.green .n{color:var(--green);}
+
+  /* ---------- Buttons ---------- */
+  .btn{font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;
+    border:1px solid var(--line-strong);background:#fff;color:var(--ink);
+    padding:11px 17px;border-radius:11px;display:inline-flex;align-items:center;gap:8px;
+    transition:.15s;white-space:nowrap;}
+  .btn:hover{border-color:var(--accent);color:var(--accent);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:var(--shadow);}
+  .btn.primary:hover{background:var(--accent-ink);color:#fff;}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--ink-soft);padding:9px 11px;}
+  .btn.ghost:hover{color:var(--accent);background:var(--accent-soft);}
+  .btn.sm{padding:7px 11px;font-size:12.5px;border-radius:9px;}
+  .btn.danger:hover{border-color:var(--red);color:var(--red);}
+
+  /* ---------- Toolbar ---------- */
+  .toolbar{display:flex;align-items:center;gap:11px;margin:28px 0 14px;flex-wrap:wrap;}
+  .toolbar h2{font-size:17px;font-weight:800;letter-spacing:-.3px;margin-right:4px;}
+  .toolbar .grow{flex:1;}
+  .search{position:relative;}
+  .search input{font-family:inherit;font-size:13.5px;padding:10px 13px 10px 34px;
+    border:1px solid var(--line-strong);border-radius:11px;background:#fff;width:230px;color:var(--ink);}
+  .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.45;}
+  select.filter{font-family:inherit;font-size:13.5px;padding:10px 12px;
+    border:1px solid var(--line-strong);border-radius:11px;background:#fff;color:var(--ink);}
+
+  /* ---------- Table ---------- */
+  .tablecard{background:var(--card);border:1px solid var(--line);border-radius:18px;
+    box-shadow:var(--shadow);overflow:hidden;}
+  .tscroll{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:920px;}
+  thead th{background:#efe9dc;color:var(--ink-soft);font-weight:700;font-size:12px;
+    letter-spacing:.02em;text-align:left;padding:13px 14px;border-bottom:1px solid var(--line-strong);
+    position:sticky;top:0;white-space:nowrap;}
+  tbody td{padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr{transition:background .12s;}
+  tbody tr:hover{background:#faf6ee;}
+  td.num{font-family:var(--mono);font-weight:600;color:var(--accent-ink);white-space:nowrap;}
+  td.yb{font-family:var(--mono);color:var(--ink-soft);}
+  td.title{max-width:330px;}
+  td.title .ttl{font-weight:600;}
+  td.title .sub{font-size:12px;color:#a39c8c;}
+  .empty-ttl{color:#b5ad9c;font-style:italic;font-weight:400;}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+    padding:5px 10px;border-radius:999px;white-space:nowrap;}
+  .badge.r{background:var(--amber-soft);color:#8a530f;}
+  .badge.s{background:var(--green-soft);color:#1f5a36;}
+  .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;}
+  .send-tags{display:flex;gap:5px;}
+  .stag{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:7px;border:1px solid var(--line);color:var(--ink-soft);}
+  .stag.on{background:var(--accent-soft);border-color:#a9d6ce;color:var(--accent-ink);}
+  .rowact{display:flex;gap:4px;justify-content:flex-end;}
+  .emptyState{padding:56px 20px;text-align:center;color:var(--ink-soft);}
+  .emptyState .big{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:5px;}
+
+  /* ---------- Modal ---------- */
+  .ov{position:fixed;inset:0;background:rgba(28,25,20,.42);backdrop-filter:blur(2px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding:40px 18px;overflow:auto;}
+  .ov.show{display:flex;}
+  .modal{background:var(--card);width:100%;max-width:560px;border-radius:20px;
+    box-shadow:0 24px 70px -20px rgba(0,0,0,.4);border:1px solid var(--line);
+    animation:pop .18s ease;}
+  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.99)}to{opacity:1;transform:none}}
+  .modal h3{font-size:18px;font-weight:800;letter-spacing:-.3px;padding:22px 24px 0;}
+  .modal .mhint{font-size:12.5px;color:var(--ink-soft);padding:4px 24px 0;}
+  .mbody{padding:18px 24px 4px;display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .fld{display:flex;flex-direction:column;gap:6px;}
+  .fld.full{grid-column:1/-1;}
+  .fld label{font-size:12.5px;font-weight:700;color:var(--ink-soft);}
+  .fld label .req{color:var(--red);}
+  .fld input[type=text],.fld input[type=number],.fld input[type=date],.fld select{
+    font-family:inherit;font-size:14px;padding:11px 12px;border:1px solid var(--line-strong);
+    border-radius:11px;background:#fff;color:var(--ink);width:100%;}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .numbox{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--accent-ink);
+    background:var(--accent-soft);border:1px solid #a9d6ce;border-radius:11px;padding:11px 13px;}
+  .sendpick{display:flex;gap:10px;}
+  .checkpill{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+    border:1px solid var(--line-strong);border-radius:11px;padding:11px;cursor:pointer;font-weight:700;font-size:14px;
+    color:var(--ink-soft);user-select:none;transition:.12s;}
+  .checkpill.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .statepick{display:flex;gap:10px;}
+  .statepick .checkpill.on.r{background:var(--amber-soft);border-color:#d99a4e;color:#8a530f;}
+  .statepick .checkpill.on.s{background:var(--green-soft);border-color:#5fa477;color:#1f5a36;}
+  .mfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:18px 24px 22px;}
+  .mfoot .right{display:flex;gap:10px;}
+
+  /* toast */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--ink);color:#fff;font-size:13.5px;font-weight:600;padding:12px 20px;border-radius:12px;
+    box-shadow:0 12px 30px -8px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:.25s;z-index:90;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.warn{background:var(--amber);}
+  .toast.err{background:var(--red);}
+
+  /* config notice */
+  .cfgwarn{display:none;background:var(--amber-soft);border:1px solid #e9c891;color:#7a4a10;
+    border-radius:14px;padding:14px 18px;margin-top:18px;font-size:13.5px;line-height:1.6;}
+  .cfgwarn.show{display:block;}
+  .cfgwarn b{color:#5e3808;}
+  code{font-family:var(--mono);background:#fff;border:1px solid var(--line);padding:1px 6px;border-radius:6px;font-size:12.5px;}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <div class="mark">문</div>
+      <div>
+        <h1>문서발송 접수대장</h1>
+        <p>넷폼알앤디 · 실시간 공유 대시보드</p>
+      </div>
+    </div>
+    <div class="conn"><span id="dot" class="dot"></span><span id="connTxt">연결 중…</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Firebase 설정 안내 -->
+  <div id="cfgwarn" class="cfgwarn">
+    <b>⚠ Firebase 설정이 필요합니다.</b><br>
+    이 파일 상단 <code>&lt;script&gt;</code> 안의 <code>firebaseConfig</code> 부분에
+    <b>pour-contract에서 쓰던 설정값을 그대로 붙여넣은 뒤</b> 저장하세요.
+    설정 전에는 입력한 내용이 다른 사람과 공유되지 않습니다.
+  </div>
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="panel">
+      <div class="eyebrow">다음 사용 가능 번호</div>
+      <div class="nextrow">
+        <div class="date-field">
+          <label for="heroDate">접수일자 기준</label>
+          <input type="date" id="heroDate">
+        </div>
+        <div class="nextnum">
+          <div class="lbl">이 날짜의 다음 문서번호</div>
+          <div class="val" id="nextNumVal">—</div>
+        </div>
+        <button class="btn primary" id="reserveBtn">＋ 이 번호 예약</button>
+      </div>
+      <div class="used">
+        <div class="h">선택일 사용/예약 현황 <span id="usedCount" style="color:#a39c8c;font-weight:400;"></span></div>
+        <div class="chips" id="usedChips"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="eyebrow">현황 요약</div>
+      <div class="stats">
+        <div class="stat"><div class="n" id="stTotal">0</div><div class="t">전체 등록 건수</div></div>
+        <div class="stat amber"><div class="n" id="stRes">0</div><div class="t">예약중 (미발송)</div></div>
+        <div class="stat green"><div class="n" id="stSent">0</div><div class="t">발송완료</div></div>
+        <div class="stat"><div class="n" id="stToday">0</div><div class="t">오늘 발송 건수</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <h2>발송 목록</h2>
+    <div class="grow"></div>
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="text" id="search" placeholder="제목·발신·번호 검색">
+    </div>
+    <select class="filter" id="fStatus">
+      <option value="">전체 상태</option>
+      <option value="예약중">예약중</option>
+      <option value="발송완료">발송완료</option>
+    </select>
+    <select class="filter" id="fHandler"><option value="">전체 담당</option></select>
+    <button class="btn" id="importBtn">⬆ 엑셀 가져오기</button>
+    <button class="btn" id="exportBtn">⬇ 엑셀 내보내기</button>
+    <button class="btn primary" id="addBtn">＋ 새 등록</button>
+    <input type="file" id="importFile" accept=".xlsx,.xls" style="display:none">
+  </div>
+
+  <!-- Table -->
+  <div class="tablecard">
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:62px">연번</th>
+            <th style="width:108px">접수일자</th>
+            <th style="width:150px">발신</th>
+            <th style="width:140px">문서번호</th>
+            <th>제목</th>
+            <th style="width:92px">처리담당</th>
+            <th style="width:120px">발송방법</th>
+            <th style="width:96px">상태</th>
+            <th style="width:96px"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="ov" id="ov">
+  <div class="modal">
+    <h3 id="mTitle">새 문서 등록</h3>
+    <div class="mhint" id="mHint">접수일자를 정하면 문서번호가 자동으로 배정됩니다.</div>
+    <div class="mbody">
+      <div class="fld">
+        <label>접수일자 <span class="req">*</span></label>
+        <input type="date" id="mDate">
+      </div>
+      <div class="fld">
+        <label>문서번호 <span style="color:#a39c8c;font-weight:500">(자동 배정)</span></label>
+        <div class="numbox" id="mNum">—</div>
+      </div>
+      <div class="fld full">
+        <label>발신</label>
+        <input type="text" id="mSender" placeholder="예: ㈜두루빌엔지니어링">
+      </div>
+      <div class="fld full">
+        <label>제목</label>
+        <input type="text" id="mTitleInput" placeholder="예: POUR공법 기술도입 컨설팅 계약서(○○아파트)">
+      </div>
+      <div class="fld">
+        <label>처리담당</label>
+        <input type="text" id="mHandler" list="handlerList" placeholder="예: 이지연">
+        <datalist id="handlerList"></datalist>
+      </div>
+      <div class="fld">
+        <label>수량</label>
+        <input type="number" id="mQty" value="1" min="1">
+      </div>
+      <div class="fld full">
+        <label>발송방법</label>
+        <div class="sendpick">
+          <div class="checkpill" id="pMail">📮 우편</div>
+          <div class="checkpill" id="pEmail">✉️ 이메일</div>
+        </div>
+      </div>
+      <div class="fld full" id="recipWrap" style="display:none">
+        <label>수령인 (우편 시)</label>
+        <input type="text" id="mRecip" placeholder="우편 수령인">
+      </div>
+      <div class="fld full">
+        <label>상태</label>
+        <div class="statepick">
+          <div class="checkpill r" id="sRes">예약중</div>
+          <div class="checkpill s" id="sSent">발송완료</div>
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost danger" id="mDelete" style="display:none">삭제</button>
+      <div class="grow"></div>
+      <div class="right">
+        <button class="btn" id="mCancel">취소</button>
+        <button class="btn primary" id="mSave">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   ① Firebase 설정  —  service2-contract 프로젝트 (협약서 대시보드와 동일)
+      데이터는 'mailregister' 경로에 저장되어 contract 데이터와 분리됩니다.
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBLSMR52O3Xi1vGeIFLHBNiExmiO-iNF_w",
+  authDomain: "service2-contract.firebaseapp.com",
+  databaseURL: "https://service2-contract-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "service2-contract",
+  storageBucket: "service2-contract.firebasestorage.app",
+  messagingSenderId: "287116981710",
+  appId: "1:287116981710:web:5964a314e6d58ecaac279f"
+};
+
+const DB_PATH = "mailregister/entries";
+
+/* ---------- 상태 ---------- */
+let db = null, entries = {}, isEditing = null, configOK = false;
+const $ = id => document.getElementById(id);
+
+function today(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+function pad2(n){ return String(n).padStart(2,'0'); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- Firebase 초기화 ---------- */
+function initFirebase(){
+  if(firebaseConfig.apiKey.indexOf("여기에")===0){
+    $('cfgwarn').classList.add('show');
+    setConn(false,"미연결 (설정 필요)");
+    render(); // 빈 화면이라도 UI는 보이게
+    return;
+  }
+  try{
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+    configOK = true;
+    db.ref('.info/connected').on('value',s=> setConn(s.val()===true, s.val()? "실시간 연결됨":"재연결 중…"));
+    db.ref(DB_PATH).on('value',snap=>{ entries = snap.val()||{}; render(); });
+  }catch(e){
+    console.error(e); setConn(false,"연결 실패"); $('cfgwarn').classList.add('show');
+  }
+}
+function setConn(on,txt){
+  $('dot').className='dot '+(on?'on':'off');
+  $('connTxt').textContent = txt;
+}
+
+/* ---------- 번호 계산 ---------- */
+function entriesArray(){ return Object.values(entries); }
+function seqUsedForDate(date){
+  return entriesArray().filter(e=>e.date===date).map(e=>Number(e.seq)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+}
+function nextSeqForDate(date){
+  const used = seqUsedForDate(date);
+  return used.length ? Math.max(...used)+1 : 1;
+}
+function makeDocNumber(date,seq){ return date + '-' + pad2(seq); }
+function nextYeonbeon(){
+  const ys = entriesArray().map(e=>Number(e.yeonbeon)).filter(n=>!isNaN(n));
+  return ys.length ? Math.max(...ys)+1 : 1;
+}
+
+/* ============================================================
+   ② 번호 예약 — Firebase 트랜잭션으로 중복 차단
+      docNumber를 키로 사용해, 누군가 먼저 가져갔으면 다음 번호로 자동 이동
+   ============================================================ */
+async function claimAndSave(date, payload){
+  if(!configOK){ toast("Firebase 설정 후 사용할 수 있어요.","err"); return null; }
+  let seq = nextSeqForDate(date);
+  for(let i=0;i<300;i++){
+    const docNumber = makeDocNumber(date,seq);
+    const ref = db.ref(DB_PATH+'/'+docNumber);
+    const res = await ref.transaction(cur=>{
+      if(cur===null) return Object.assign({}, payload, {
+        date, seq, docNumber,
+        yeonbeon: payload.yeonbeon || nextYeonbeon(),
+        createdAt: Date.now(), updatedAt: Date.now()
+      });
+      return; // 이미 사용중 → 중단
+    });
+    if(res.committed) return docNumber;
+    seq++; // 다른 사람이 방금 가져감 → 다음 번호 시도
+  }
+  toast("번호 배정에 실패했습니다.","err"); return null;
+}
+
+/* ---------- 렌더 ---------- */
+function render(){
+  renderNext();
+  renderStats();
+  renderHandlerFilter();
+  renderTable();
+}
+
+function renderNext(){
+  const date = $('heroDate').value || today();
+  $('nextNumVal').innerHTML = makeDocNumber(date,nextSeqForDate(date));
+  const list = entriesArray().filter(e=>e.date===date).sort((a,b)=>a.seq-b.seq);
+  $('usedCount').textContent = list.length ? `· ${list.length}건` : '';
+  const box = $('usedChips');
+  if(!list.length){ box.innerHTML='<span class="chip empty">아직 없음 — 01번부터 시작</span>'; return; }
+  box.innerHTML = list.map(e=>{
+    const cls = e.status==='발송완료'?'s':'r';
+    return `<span class="chip ${cls}" title="${esc(e.title||'')}">${e.docNumber.slice(-2)} · ${e.status==='발송완료'?'발송':'예약'}</span>`;
+  }).join('');
+}
+
+function renderStats(){
+  const arr = entriesArray();
+  $('stTotal').textContent = arr.length;
+  $('stRes').textContent  = arr.filter(e=>e.status==='예약중').length;
+  $('stSent').textContent = arr.filter(e=>e.status==='발송완료').length;
+  $('stToday').textContent= arr.filter(e=>e.date===today() && e.status==='발송완료').length;
+}
+
+function renderHandlerFilter(){
+  const cur = $('fHandler').value;
+  const names = [...new Set(entriesArray().map(e=>e.handler).filter(Boolean))].sort();
+  $('fHandler').innerHTML = '<option value="">전체 담당</option>'+names.map(n=>`<option ${n===cur?'selected':''}>${esc(n)}</option>`).join('');
+  $('handlerList').innerHTML = names.map(n=>`<option value="${esc(n)}">`).join('');
+}
+
+function renderTable(){
+  const q = $('search').value.trim().toLowerCase();
+  const fs = $('fStatus').value, fh = $('fHandler').value;
+  let arr = entriesArray().filter(e=>{
+    if(fs && e.status!==fs) return false;
+    if(fh && e.handler!==fh) return false;
+    if(q){
+      const blob = [e.docNumber,e.sender,e.title,e.handler,e.yeonbeon].join(' ').toLowerCase();
+      if(!blob.includes(q)) return false;
+    }
+    return true;
+  });
+  // 최신 날짜·번호 우선
+  arr.sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.seq-a.seq));
+
+  const tb = $('tbody');
+  if(!arr.length){
+    tb.innerHTML = `<tr><td colspan="9"><div class="emptyState"><div class="big">표시할 항목이 없습니다.</div>오른쪽 위 <b>＋ 새 등록</b> 또는 <b>이 번호 예약</b>으로 시작하세요.</div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = arr.map(e=>{
+    const send = `<div class="send-tags"><span class="stag ${e.byMail?'on':''}">우편</span><span class="stag ${e.byEmail?'on':''}">이메일</span></div>`;
+    const badge = e.status==='발송완료'
+      ? '<span class="badge s">발송완료</span>'
+      : '<span class="badge r">예약중</span>';
+    const title = e.title ? `<div class="ttl">${esc(e.title)}</div>` : `<div class="empty-ttl">제목 미입력 (예약됨)</div>`;
+    const sub = e.recipient ? `<div class="sub">수령인: ${esc(e.recipient)}</div>` : '';
+    return `<tr>
+      <td class="yb">${esc(e.yeonbeon||'')}</td>
+      <td>${esc(e.date||'')}</td>
+      <td>${esc(e.sender||'—')}</td>
+      <td class="num">${esc(e.docNumber)}</td>
+      <td class="title">${title}${sub}</td>
+      <td>${esc(e.handler||'—')}</td>
+      <td>${send}</td>
+      <td>${badge}</td>
+      <td><div class="rowact">
+        <button class="btn sm ghost" onclick="openEdit('${e.docNumber}')">편집</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---------- 모달 ---------- */
+let mSend = {mail:false, email:false}, mState='발송완료';
+
+function openAdd(prefillDate){
+  isEditing = null;
+  $('mTitle').textContent = '새 문서 등록';
+  $('mHint').textContent = '접수일자를 정하면 문서번호가 자동으로 배정됩니다.';
+  $('mDate').value = prefillDate || $('heroDate').value || today();
+  $('mDate').disabled = false;
+  $('mSender').value=''; $('mTitleInput').value=''; $('mHandler').value=''; $('mQty').value=1; $('mRecip').value='';
+  mSend={mail:false,email:false}; mState='발송완료';
+  $('mDelete').style.display='none';
+  syncModal();
+  $('ov').classList.add('show');
+}
+function openEdit(docNumber){
+  const e = entries[docNumber]; if(!e) return;
+  isEditing = docNumber;
+  $('mTitle').textContent = '문서 정보 편집';
+  $('mHint').innerHTML = `문서번호 <b>${esc(docNumber)}</b> · 번호/일자는 고정됩니다. 변경하려면 삭제 후 다시 등록하세요.`;
+  $('mDate').value = e.date; $('mDate').disabled = true;
+  $('mSender').value=e.sender||''; $('mTitleInput').value=e.title||'';
+  $('mHandler').value=e.handler||''; $('mQty').value=e.qty||1; $('mRecip').value=e.recipient||'';
+  mSend={mail:!!e.byMail, email:!!e.byEmail}; mState=e.status||'발송완료';
+  $('mDelete').style.display='inline-flex';
+  syncModal();
+  $('ov').classList.add('show');
+}
+function syncModal(){
+  $('pMail').classList.toggle('on',mSend.mail);
+  $('pEmail').classList.toggle('on',mSend.email);
+  $('recipWrap').style.display = mSend.mail ? 'flex':'none';
+  $('sRes').classList.toggle('on',mState==='예약중');
+  $('sRes').classList.toggle('r',mState==='예약중');
+  $('sSent').classList.toggle('on',mState==='발송완료');
+  $('sSent').classList.toggle('s',mState==='발송완료');
+  const d = $('mDate').value || today();
+  $('mNum').textContent = isEditing ? isEditing : makeDocNumber(d, nextSeqForDate(d));
+}
+function closeModal(){ $('ov').classList.remove('show'); }
+
+async function saveModal(){
+  const payload = {
+    sender: $('mSender').value.trim(),
+    title: $('mTitleInput').value.trim(),
+    handler: $('mHandler').value.trim(),
+    qty: Number($('mQty').value)||1,
+    byMail: mSend.mail, byEmail: mSend.email,
+    recipient: mSend.mail ? $('mRecip').value.trim() : '',
+    status: mState
+  };
+  if(isEditing){
+    payload.updatedAt = Date.now();
+    await db.ref(DB_PATH+'/'+isEditing).update(payload);
+    closeModal(); toast('수정되었습니다.');
+  }else{
+    const date = $('mDate').value || today();
+    const expected = makeDocNumber(date, nextSeqForDate(date));
+    const got = await claimAndSave(date, payload);
+    if(got){
+      closeModal();
+      if(got!==expected) toast(`${expected}는 방금 사용되어 ${got}로 배정했습니다.`,'warn');
+      else toast(`${got} 번호로 등록되었습니다.`);
+    }
+  }
+}
+async function deleteEntry(){
+  if(!isEditing) return;
+  if(!confirm(`${isEditing} 항목을 삭제할까요?`)) return;
+  await db.ref(DB_PATH+'/'+isEditing).remove();
+  closeModal(); toast('삭제되었습니다.');
+}
+
+/* ============================================================
+   ③ 엑셀 가져오기 — 기존 대장 xlsx를 한 번에 Firebase로 이전
+      · 헤더 3줄 건너뜀  · 문서번호 있는 행만 가져옴
+      · 접수일자(날짜)+문서번호 끝자리로 번호 재구성 → 형식 자동 보정
+      · 같은 번호가 여러 개면(과거 중복) 모두 보존 (키에만 _r 표시)
+   ============================================================ */
+function pad2i(n){ return String(n).padStart(2,'0'); }
+function cellToDate(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return `${v.getFullYear()}-${pad2i(v.getMonth()+1)}-${pad2i(v.getDate())}`;
+  if(typeof v==='number'){ // Excel serial
+    const d=new Date(Math.round((v-25569)*86400*1000));
+    return `${d.getUTCFullYear()}-${pad2i(d.getUTCMonth()+1)}-${pad2i(d.getUTCDate())}`;
+  }
+  const m=String(v).match(/(\d{4})\D?(\d{1,2})\D?(\d{1,2})/);
+  return m? `${m[1]}-${pad2i(m[2])}-${pad2i(m[3])}` : null;
+}
+function parseSeq(raw){
+  const segs=String(raw).trim().split(/[-_/.\s]+/);
+  for(let i=segs.length-1;i>=0;i--) if(/^\d+$/.test(segs[i])) return parseInt(segs[i],10);
+  return null;
+}
+function rebuildDateFromNum(raw){
+  const digits=String(raw).replace(/\D/g,'');
+  const m=digits.match(/(\d{4})(\d{2})(\d{2})/);
+  if(!m) return null;
+  let y=m[1]; if(y.startsWith('2020')&&digits.length>=9) y='2026'; // 20206 오타 보정
+  return `${y}-${m[2]}-${m[3]}`;
+}
+
+function handleImportFile(file){
+  if(!configOK){ toast('먼저 Firebase 설정을 완료하세요.','err'); return; }
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
+      const rows=aoa.slice(3); // 헤더 3줄 제거
+      const out={}; let skipped=0, fixed=0, dup=0;
+      rows.forEach(r=>{
+        const [yeon,b,sender,num,title,qty,hand,mail,email,recip]=r;
+        if(num==null||String(num).trim()===''){ skipped++; return; }
+        let date=cellToDate(b); if(!date) date=rebuildDateFromNum(num);
+        const seq=parseSeq(num);
+        if(!date||seq==null){ skipped++; return; }
+        const clean=`${date}-${pad2i(seq)}`;
+        if(String(num).trim()!==clean) fixed++;
+        let key=clean;
+        while(out[key]){ dup++; key=key+'_r'; }
+        out[key]={
+          yeonbeon:(yeon!=null&&String(yeon).trim()!=='')?Number(yeon)||yeon:'',
+          date, seq, docNumber:clean,
+          sender:sender?String(sender).trim():'',
+          title:title?String(title).trim():'',
+          qty:Number(qty)||1,
+          handler:hand?String(hand).trim():'',
+          byMail:String(mail||'').trim().toUpperCase()==='V',
+          byEmail:String(email||'').trim().toUpperCase()==='V',
+          recipient:recip?String(recip).trim():'',
+          status:'발송완료', imported:true, updatedAt:Date.now()
+        };
+      });
+      const count=Object.keys(out).length;
+      if(!count){ toast('가져올 행이 없습니다.','warn'); return; }
+      const existing=Object.keys(entries).length;
+      const msg=`가져올 항목: ${count}건\n`+
+        `· 형식 보정: ${fixed}건  · 중복 보존: ${dup}건  · 건너뛴 행: ${skipped}건\n`+
+        (existing? `\n⚠ 현재 ${existing}건이 이미 있습니다. 같은 번호는 덮어쓰고 나머지는 추가됩니다.`:'')+
+        `\n\n진행할까요?`;
+      if(!confirm(msg)) return;
+      db.ref(DB_PATH).update(out)
+        .then(()=>toast(`${count}건을 가져왔습니다.`))
+        .catch(err=>{ console.error(err); toast('가져오기 실패: '+err.message,'err'); });
+    }catch(err){ console.error(err); toast('파일을 읽지 못했습니다.','err'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* ---------- 엑셀 내보내기 ---------- */
+function exportExcel(){
+  const arr = entriesArray().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.seq-b.seq));
+  if(!arr.length){ toast('내보낼 데이터가 없습니다.','warn'); return; }
+  const head = ['연번','접수일자','발신','문서번호','제목','수량','처리담당','우편','이메일','수령인(우편시)','상태'];
+  const rows = arr.map(e=>[
+    e.yeonbeon||'', e.date||'', e.sender||'', e.docNumber||'', e.title||'',
+    e.qty||1, e.handler||'', e.byMail?'V':'', e.byEmail?'V':'', e.recipient||'', e.status||''
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([['문서발송 접수대장'],head,...rows]);
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}}];
+  ws['!cols']=[{wch:7},{wch:12},{wch:20},{wch:16},{wch:42},{wch:6},{wch:10},{wch:6},{wch:8},{wch:16},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'문서발송대장');
+  XLSX.writeFile(wb, `문서발송대장_${today()}.xlsx`);
+  toast('엑셀 파일을 내보냈습니다.');
+}
+
+/* ---------- toast ---------- */
+let toastT=null;
+function toast(msg,type){
+  const t=$('toast'); t.textContent=msg; t.className='toast show'+(type?' '+type:'');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.className='toast',2600);
+}
+
+/* ---------- 이벤트 ---------- */
+$('heroDate').value = today();
+$('heroDate').addEventListener('change',()=>{ renderNext(); });
+$('reserveBtn').addEventListener('click',()=>openAdd($('heroDate').value));
+$('addBtn').addEventListener('click',()=>openAdd());
+$('exportBtn').addEventListener('click',exportExcel);
+$('importBtn').addEventListener('click',()=>$('importFile').click());
+$('importFile').addEventListener('change',e=>{ if(e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value=''; });
+$('search').addEventListener('input',renderTable);
+$('fStatus').addEventListener('change',renderTable);
+$('fHandler').addEventListener('change',renderTable);
+$('mCancel').addEventListener('click',closeModal);
+$('mSave').addEventListener('click',saveModal);
+$('mDelete').addEventListener('click',deleteEntry);
+$('ov').addEventListener('click',e=>{ if(e.target===$('ov')) closeModal(); });
+$('mDate').addEventListener('change',syncModal);
+$('pMail').addEventListener('click',()=>{ mSend.mail=!mSend.mail; syncModal(); });
+$('pEmail').addEventListener('click',()=>{ mSend.email=!mSend.email; syncModal(); });
+$('sRes').addEventListener('click',()=>{ mState='예약중'; syncModal(); });
+$('sSent').addEventListener('click',()=>{ mState='발송완료'; syncModal(); });
+window.openEdit = openEdit;
+
+initFirebase();
+</script>
+</body>
+</html>
