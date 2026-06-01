@@ -172,6 +172,10 @@
   .fld input:focus,.fld select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
   .numbox{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--accent-ink);
     background:var(--accent-soft);border:1px solid #a9d6ce;border-radius:11px;padding:11px 13px;}
+  .title-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+  .tchip{font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line-strong);background:#fff;color:var(--ink-soft);transition:.12s;user-select:none;}
+  .tchip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);}
   .sendpick{display:flex;gap:10px;}
   .checkpill{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
     border:1px solid var(--line-strong);border-radius:11px;padding:11px;cursor:pointer;font-weight:700;font-size:14px;
@@ -315,15 +319,18 @@
       </div>
       <div class="fld full">
         <label>발신</label>
-        <input type="text" id="mSender" placeholder="예: ㈜두루빌엔지니어링">
+        <input type="text" id="mSender" list="senderList" placeholder="예: ㈜두루빌엔지니어링" autocomplete="off">
+        <datalist id="senderList"></datalist>
       </div>
       <div class="fld full">
-        <label>제목</label>
-        <input type="text" id="mTitleInput" placeholder="예: POUR공법 기술도입 컨설팅 계약서(○○아파트)">
+        <label>제목 <span style="color:#a39c8c;font-weight:500">— 자주 쓰는 제목을 누르면 채워집니다</span></label>
+        <div class="title-chips" id="titleChips"></div>
+        <input type="text" id="mTitleInput" list="titleList" placeholder="예: POUR공법 기술도입 컨설팅 계약서(○○아파트)" autocomplete="off">
+        <datalist id="titleList"></datalist>
       </div>
       <div class="fld">
         <label>처리담당</label>
-        <input type="text" id="mHandler" list="handlerList" placeholder="예: 이지연">
+        <input type="text" id="mHandler" list="handlerList" placeholder="예: 이지연" autocomplete="off">
         <datalist id="handlerList"></datalist>
       </div>
       <div class="fld">
@@ -480,9 +487,48 @@ function renderStats(){
 
 function renderHandlerFilter(){
   const cur = $('fHandler').value;
-  const names = [...new Set(entriesArray().map(e=>e.handler).filter(Boolean))].sort();
+  const arr = entriesArray();
+  const names = [...new Set(arr.map(e=>e.handler).filter(Boolean))].sort();
   $('fHandler').innerHTML = '<option value="">전체 담당</option>'+names.map(n=>`<option ${n===cur?'selected':''}>${esc(n)}</option>`).join('');
   $('handlerList').innerHTML = names.map(n=>`<option value="${esc(n)}">`).join('');
+  // 발신 자동완성 (자주 쓰는 순)
+  const sCount={}; arr.forEach(e=>{ if(e.sender) sCount[e.sender]=(sCount[e.sender]||0)+1; });
+  const senders=Object.keys(sCount).sort((a,b)=>sCount[b]-sCount[a]);
+  $('senderList').innerHTML = senders.map(s=>`<option value="${esc(s)}">`).join('');
+  // 제목 자동완성 (기존 제목 전체, 자주 쓰는 순)
+  const tCount={}; arr.forEach(e=>{ if(e.title) tCount[e.title]=(tCount[e.title]||0)+1; });
+  const titles=Object.keys(tCount).sort((a,b)=>tCount[b]-tCount[a]);
+  $('titleList').innerHTML = titles.map(t=>`<option value="${esc(t)}">`).join('');
+}
+
+/* 자주 쓰는 제목 틀 — 누르면 채워지고 ○○아파트가 자동 선택됨 */
+const TITLE_TEMPLATES = [
+  "POUR공법 기술ㆍ자재형 공사 이용관련 안내문(○○아파트)",
+  "POUR공법 기술도입 컨설팅 계약서(○○아파트)",
+  "POUR공법 컨설팅 변경 안내서(○○아파트)",
+  "POUR공법 기술도입 컨설팅 변경 계약서(○○아파트)",
+  "특허료 지급 요청서_○○아파트",
+  "특허기술 자문료 청구공문_○○아파트"
+];
+function chipLabel(t){ return t.replace(/[(_].*$/,'').replace(/POUR공법\s*/,'').trim() || t.slice(0,8); }
+function renderTitleChips(){
+  $('titleChips').innerHTML = TITLE_TEMPLATES.map((t,i)=>
+    `<span class="tchip" data-i="${i}" title="${esc(t)}">${esc(chipLabel(t))}</span>`).join('');
+  $('titleChips').querySelectorAll('.tchip').forEach(el=>{
+    el.addEventListener('click',()=>applyTemplate(TITLE_TEMPLATES[+el.dataset.i]));
+  });
+}
+function applyTemplate(tmpl){
+  const inp=$('mTitleInput');
+  inp.value=tmpl;
+  inp.focus();
+  // ○○아파트 부분을 선택해 바로 덮어쓸 수 있게
+  const ph='○○';
+  const at=tmpl.indexOf(ph);
+  if(at>=0){
+    // ○○ 만 선택 (아파트명만 타이핑하면 됨)
+    inp.setSelectionRange(at, at+ph.length);
+  }
 }
 
 function renderTable(){
@@ -709,6 +755,7 @@ function toast(msg,type){
 
 /* ---------- 이벤트 ---------- */
 $('heroDate').value = today();
+renderTitleChips();
 $('heroDate').addEventListener('change',()=>{ renderNext(); });
 $('reserveBtn').addEventListener('click',()=>openAdd($('heroDate').value));
 $('addBtn').addEventListener('click',()=>openAdd());
