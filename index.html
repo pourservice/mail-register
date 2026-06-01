@@ -266,7 +266,7 @@
     <div class="grow"></div>
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input type="text" id="search" placeholder="제목·발신·번호 검색">
+      <input type="text" id="search" placeholder="제목·수신·번호 검색">
     </div>
     <select class="filter" id="fStatus">
       <option value="">전체 상태</option>
@@ -288,7 +288,7 @@
           <tr>
             <th style="width:62px">연번</th>
             <th style="width:108px">접수일자</th>
-            <th style="width:150px">발신</th>
+            <th style="width:150px">수신</th>
             <th style="width:140px">문서번호</th>
             <th>제목</th>
             <th style="width:92px">처리담당</th>
@@ -318,7 +318,7 @@
         <div class="numbox" id="mNum">—</div>
       </div>
       <div class="fld full">
-        <label>발신</label>
+        <label>수신</label>
         <input type="text" id="mSender" list="senderList" placeholder="예: ㈜두루빌엔지니어링" autocomplete="off">
         <datalist id="senderList"></datalist>
       </div>
@@ -491,7 +491,7 @@ function renderHandlerFilter(){
   const names = [...new Set(arr.map(e=>e.handler).filter(Boolean))].sort();
   $('fHandler').innerHTML = '<option value="">전체 담당</option>'+names.map(n=>`<option ${n===cur?'selected':''}>${esc(n)}</option>`).join('');
   $('handlerList').innerHTML = names.map(n=>`<option value="${esc(n)}">`).join('');
-  // 발신 자동완성 (자주 쓰는 순)
+  // 수신 자동완성 (자주 쓰는 순)
   const sCount={}; arr.forEach(e=>{ if(e.sender) sCount[e.sender]=(sCount[e.sender]||0)+1; });
   const senders=Object.keys(sCount).sort((a,b)=>sCount[b]-sCount[a]);
   $('senderList').innerHTML = senders.map(s=>`<option value="${esc(s)}">`).join('');
@@ -732,7 +732,7 @@ function handleImportFile(file){
 function exportExcel(){
   const arr = entriesArray().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.seq-b.seq));
   if(!arr.length){ toast('내보낼 데이터가 없습니다.','warn'); return; }
-  const head = ['연번','접수일자','발신','문서번호','제목','수량','처리담당','우편','이메일','수령인(우편시)','상태'];
+  const head = ['연번','접수일자','수신','문서번호','제목','수량','처리담당','우편','이메일','수령인(우편시)','상태'];
   const rows = arr.map(e=>[
     e.yeonbeon||'', e.date||'', e.sender||'', e.docNumber||'', e.title||'',
     e.qty||1, e.handler||'', e.byMail?'V':'', e.byEmail?'V':'', e.recipient||'', e.status||''
