@@ -386,6 +386,66 @@ const firebaseConfig = {
 
 const DB_PATH = "mailregister/entries";
 
+/* ============================================================
+   잔디 알림 설정 — 컨설팅 계약서 신규 발송 시 경영지원팀 자동 알림
+   ------------------------------------------------------------
+   · 발송 경로 : 대시보드 → n8n Webhook → 경영지원팀 잔디 incoming webhook
+   · 발송 조건 : 제목에 '컨설팅'+'계약서' · 상태 '발송완료' (처리담당 무관)
+   · 과거 제외 : createdAt(생성 시각) >= JANDI_SINCE 인 신규 항목만
+   · 중복 방지 : 항목당 1회 (jandiNotified 플래그, 트랜잭션 보호)
+   ============================================================ */
+const N8N_WEBHOOK_URL = "https://nfrnd.app.n8n.cloud/webhook/mailregister-notify";   // n8n Webhook(Production) URL — 알림 ON
+const JANDI_SINCE     = 1781751451442;   // 기준 시각(이 시각 이후 생성분만 알림) = 2026-06-18 11:57 KST
+
+/* 컨설팅 계약서 발송 건인지 판별 */
+function isConsultingContract(e){
+  if(!e) return false;
+  const t = String(e.title  || '').replace(/\s/g,'');
+  return t.includes('컨설팅') && t.includes('계약서')
+      && e.status === '발송완료';
+}
+/* 제목 끝 괄호에서 아파트명 추출:  "...컨설팅 계약서(○○아파트)" → "○○아파트" */
+function aptFromTitle(title){
+  const m = String(title||'').match(/\(([^)]+)\)\s*$/);
+  return m ? m[1].trim() : '';
+}
+/* 조건 충족 시 1회만 잔디 알림 발송 (n8n 경유) */
+async function maybeNotifyJandi(docNumber){
+  if(!configOK || !docNumber || !N8N_WEBHOOK_URL) return;   // URL 미설정이면 조용히 통과
+  let e;
+  try{ e = (await db.ref(DB_PATH+'/'+docNumber).once('value')).val(); }
+  catch(err){ console.error('잔디 알림: 항목 조회 실패', err); return; }
+  if(!isConsultingContract(e)) return;          // 제목에 컨설팅·계약서 + 발송완료 아니면 제외
+  if((e.createdAt||0) < JANDI_SINCE) return;     // 과거/이관 데이터 제외
+  if(e.imported) return;                         // 엑셀 일괄 이관분 제외
+  // 항목당 1회 — 플래그를 트랜잭션으로 선점 (이미 true면 abort)
+  let res;
+  try{ res = await db.ref(DB_PATH+'/'+docNumber+'/jandiNotified').transaction(cur=> cur ? undefined : true); }
+  catch(err){ console.error('잔디 알림: 플래그 트랜잭션 실패', err); return; }
+  if(!res.committed) return;                     // 이미 발송된 건
+  const payload = {
+    type:      'consulting_contract',
+    apt:       aptFromTitle(e.title),            // 아파트명
+    receiver:  e.sender || '',                   // 수신자
+    title:     e.title  || '',                   // 문서제목
+    date:      e.date   || '',                   // 접수일자
+    docNumber: docNumber,                        // (참고용) 문서번호
+    handler:   e.handler|| ''                    // (참고용) 처리담당
+  };
+  try{
+    await fetch(N8N_WEBHOOK_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+  }catch(err){
+    console.error('잔디 알림 전송 실패', err);
+    // 전송 실패 시 다음 편집에서 재시도할 수 있도록 플래그 해제
+    try{ await db.ref(DB_PATH+'/'+docNumber+'/jandiNotified').set(null); }catch(_){}
+    toast('잔디 알림 전송에 실패했어요 (저장은 정상).', 'warn');
+  }
+}
+
 /* ---------- 상태 ---------- */
 let db = null, entries = {}, isEditing = null, configOK = false;
 const $ = id => document.getElementById(id);
@@ -626,9 +686,11 @@ async function saveModal(){
     status: mState
   };
   if(isEditing){
+    const editId = isEditing;
     payload.updatedAt = Date.now();
-    await db.ref(DB_PATH+'/'+isEditing).update(payload);
+    await db.ref(DB_PATH+'/'+editId).update(payload);
     closeModal(); toast('수정되었습니다.');
+    maybeNotifyJandi(editId);
   }else{
     const date = $('mDate').value || today();
     const expected = makeDocNumber(date, nextSeqForDate(date));
@@ -637,6 +699,7 @@ async function saveModal(){
       closeModal();
       if(got!==expected) toast(`${expected}는 방금 사용되어 ${got}로 배정했습니다.`,'warn');
       else toast(`${got} 번호로 등록되었습니다.`);
+      maybeNotifyJandi(got);
     }
   }
 }
@@ -709,7 +772,7 @@ function handleImportFile(file){
           byMail:String(mail||'').trim().toUpperCase()==='V',
           byEmail:String(email||'').trim().toUpperCase()==='V',
           recipient:recip?String(recip).trim():'',
-          status:'발송완료', imported:true, updatedAt:Date.now()
+          status:'발송완료', imported:true, jandiNotified:true, updatedAt:Date.now()
         };
       });
       const count=Object.keys(out).length;
